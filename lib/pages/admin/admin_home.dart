@@ -1,3 +1,4 @@
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -99,7 +100,13 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
       await fn();
       await _refresh();
     } catch (e) {
-      if (mounted) _toast("Error: $e", AdminColors.red, icon: Icons.error_outline);
+      if (mounted) {
+        _toast(
+          friendlyError(e, fallback: 'Something went wrong. Please try again.'),
+          AdminColors.red,
+          icon: Icons.error_outline,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -227,7 +234,13 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(child: Text("ERROR: ${snap.error}", style: const TextStyle(color: AdminColors.red)));
+            return Center(
+              child: Text(
+                friendlyError(snap.error!, fallback: 'Could not load admin data.'),
+                style: const TextStyle(color: AdminColors.red),
+                textAlign: TextAlign.center,
+              ),
+            );
           }
           final data = snap.data!;
           return AnimatedSwitcher(duration: const Duration(milliseconds: 250), child: _page(data));
@@ -574,7 +587,11 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
       );
     } catch (e) {
       if (mounted) {
-        _toast("Note: email not sent ($e)", AdminColors.orange, icon: Icons.info_outline);
+        _toast(
+          'Note: ${friendlyError(e, fallback: 'Email notification could not be sent.')}',
+          AdminColors.orange,
+          icon: Icons.info_outline,
+        );
       }
     }
   }

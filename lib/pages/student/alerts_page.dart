@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 
 class NotificationsState {
   final AsyncValue<List<Map<String, dynamic>>> items;
@@ -213,7 +214,7 @@ class AlertsPage extends ConsumerWidget {
               ),
             ],
           ),
-          error: (err, _) => _error(err.toString()),
+          error: (err, _) => _error(err),
           data: (list) {
             if (list.isEmpty) return _empty();
             return ListView.separated(
@@ -414,7 +415,8 @@ class AlertsPage extends ConsumerWidget {
     );
   }
 
-  Widget _error(String message) {
+  Widget _error(Object? error) {
+    final message = friendlyError(error ?? Exception('Unknown error'), fallback: 'Please try again.');
     return ListView(
       padding: const EdgeInsets.all(24),
       physics: const AlwaysScrollableScrollPhysics(),

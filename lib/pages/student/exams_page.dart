@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 
 class ExamsPage extends StatefulWidget {
   const ExamsPage({super.key});
@@ -54,7 +55,7 @@ class _ExamsPageState extends State<ExamsPage> {
             if (snap.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snap.hasError) return _error(snap.error.toString());
+            if (snap.hasError) return _error(snap.error);
             final exams = snap.data ?? [];
             if (exams.isEmpty) return _empty();
 
@@ -153,7 +154,8 @@ class _ExamsPageState extends State<ExamsPage> {
     );
   }
 
-  Widget _error(String message) {
+  Widget _error(Object? error) {
+    final message = friendlyError(error ?? Exception('Unknown error'), fallback: 'Please try again.');
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [

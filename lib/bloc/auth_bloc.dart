@@ -1,4 +1,5 @@
 import 'package:bloc/bloc.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -148,7 +149,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     } catch (e) {
       emit(AuthState(
         status: AuthStatus.failure,
-        message: e.toString(),
+        message: friendlyError(e, fallback: 'Could not load your account. Please try again.'),
       ));
     }
   }
@@ -218,7 +219,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     } catch (e) {
       emit(AuthState(
         status: AuthStatus.failure,
-        message: e.toString(),
+        message: friendlyAuthError(e),
       ));
     }
   }

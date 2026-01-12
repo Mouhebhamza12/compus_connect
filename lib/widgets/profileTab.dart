@@ -6,6 +6,7 @@ import 'package:compus_connect/pages/student/change_password_page.dart';
 import 'package:compus_connect/pages/student/help_support_page.dart';
 import 'package:compus_connect/pages/student/notifications_page.dart';
 import 'package:compus_connect/pages/student/profile_change_request_page.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
@@ -67,7 +68,7 @@ class _ProfileTabState extends State<ProfileTab> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update photo: $e')),
+          SnackBar(content: Text(friendlyError(e, fallback: 'Could not update photo.'))),
         );
       }
     } finally {

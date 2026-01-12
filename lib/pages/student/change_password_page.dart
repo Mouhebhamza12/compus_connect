@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 
 class ChangePasswordPage extends StatefulWidget {
   const ChangePasswordPage({super.key});
@@ -56,7 +57,9 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
         Navigator.pop(context);
       }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString().replaceFirst("Exception: ", ""));
+      if (mounted) {
+        setState(() => _error = friendlyError(e, fallback: 'Password update failed. Please try again.'));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

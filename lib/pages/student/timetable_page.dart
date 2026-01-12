@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 
 class TimetablePage extends StatefulWidget {
   const TimetablePage({super.key});
@@ -62,7 +63,7 @@ class _TimetablePageState extends State<TimetablePage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return _error(snapshot.error.toString());
+              return _error(snapshot.error);
             }
             final list = snapshot.data ?? [];
             if (list.isEmpty) {
@@ -255,7 +256,8 @@ class _TimetablePageState extends State<TimetablePage> {
     );
   }
 
-  Widget _error(String message) {
+  Widget _error(Object? error) {
+    final message = friendlyError(error ?? Exception('Unknown error'), fallback: 'Please try again.');
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [

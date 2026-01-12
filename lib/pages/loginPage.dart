@@ -4,6 +4,7 @@ import 'package:compus_connect/pages/signUp.dart';
 import 'package:compus_connect/pages/student/student_home.dart';
 import 'package:compus_connect/pages/teacher_home.dart';
 import 'package:compus_connect/utilities/colors.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -72,7 +73,7 @@ class _LoginPageState extends State<LoginPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset failed: $e')),
+        SnackBar(content: Text(friendlyError(e, fallback: 'Reset failed. Please try again.'))),
       );
     } finally {
       if (mounted) {

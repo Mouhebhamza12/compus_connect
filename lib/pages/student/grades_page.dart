@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 
 class GradesPage extends StatefulWidget {
   const GradesPage({super.key});
@@ -56,7 +57,7 @@ class _GradesPageState extends State<GradesPage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return _error(snapshot.error.toString());
+              return _error(snapshot.error);
             }
             final grades = snapshot.data ?? [];
             if (grades.isEmpty) return _empty();
@@ -167,7 +168,8 @@ class _GradesPageState extends State<GradesPage> {
     );
   }
 
-  Widget _error(String message) {
+  Widget _error(Object? error) {
+    final message = friendlyError(error ?? Exception('Unknown error'), fallback: 'Please try again.');
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [

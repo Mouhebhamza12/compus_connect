@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 
 class CourseDetailPage extends StatefulWidget {
   final String courseId;
@@ -66,7 +67,7 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return _error(snapshot.error.toString());
+              return _error(snapshot.error);
             }
             final materials = snapshot.data ?? [];
             return ListView(
@@ -211,7 +212,8 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
     );
   }
 
-  Widget _error(String message) {
+  Widget _error(Object? error) {
+    final message = friendlyError(error ?? Exception('Unknown error'), fallback: 'Please try again.');
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [

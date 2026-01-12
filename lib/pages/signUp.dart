@@ -2,6 +2,7 @@
 
 import 'package:compus_connect/pages/loginPage.dart';
 import 'package:compus_connect/utilities/colors.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -135,7 +136,7 @@ class _SignUpPageState extends State<SignUpPage> {
   } catch (e) {
     if (!mounted) return;
     setState(() {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      _error = friendlyError(e, fallback: 'Sign up failed. Please try again.');
     });
   } finally {
     if (!mounted) return;

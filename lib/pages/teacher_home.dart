@@ -6,6 +6,7 @@ import 'package:compus_connect/pages/teacher/teacher_data.dart';
 import 'package:compus_connect/pages/teacher/teacher_marks_page.dart';
 import 'package:compus_connect/pages/teacher/teacher_models.dart';
 import 'package:compus_connect/pages/teacher/teacher_overview_tab.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -85,7 +86,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
           }
           if (snap.hasError) {
             return _ErrorState(
-              message: _friendlyError(snap.error),
+              message: friendlyError(snap.error ?? Exception('Unknown error'), fallback: 'Could not load teacher data.'),
               onRetry: _reload,
             );
           }
@@ -170,14 +171,6 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
       _focusMarksCourseId = courseId;
       _tabIndex = 3;
     });
-  }
-
-  String _friendlyError(Object? error) {
-    final msg = error?.toString() ?? 'Unknown error';
-    if (msg.contains('PGRST')) return 'Database table is missing or blocked by permissions.';
-    if (msg.contains('SocketException')) return 'No internet connection.';
-    if (msg.contains('JWT')) return 'Session expired. Please log in again.';
-    return msg;
   }
 }
 

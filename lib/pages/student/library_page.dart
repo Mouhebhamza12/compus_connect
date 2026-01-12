@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -55,7 +56,7 @@ class _LibraryPageState extends State<LibraryPage> {
               return const Center(child: CircularProgressIndicator());
             }
             if (snap.hasError) {
-              return _error(snap.error.toString());
+              return _error(snap.error);
             }
             final items = snap.data ?? [];
             if (items.isEmpty) return _empty();
@@ -182,7 +183,8 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
-  Widget _error(String message) {
+  Widget _error(Object? error) {
+    final message = friendlyError(error ?? Exception('Unknown error'), fallback: 'Please try again.');
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [

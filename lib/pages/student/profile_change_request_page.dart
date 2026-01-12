@@ -1,4 +1,5 @@
 import 'package:compus_connect/utilities/colors.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -83,7 +84,7 @@ class _ProfileChangeRequestPageState extends State<ProfileChangeRequestPage> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e, fallback: 'Could not load your profile. Please try again.');
         _loading = false;
       });
     }
@@ -151,11 +152,11 @@ class _ProfileChangeRequestPageState extends State<ProfileChangeRequestPage> {
       if (e.code == '23505') {
         setState(() => _error = "You already have a pending request.");
       } else {
-        setState(() => _error = e.message);
+        setState(() => _error = friendlyError(e, fallback: 'Could not submit request. Please try again.'));
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(() => _error = friendlyError(e, fallback: 'Could not submit request. Please try again.'));
     } finally {
       if (!mounted) return;
       setState(() => _submitting = false);

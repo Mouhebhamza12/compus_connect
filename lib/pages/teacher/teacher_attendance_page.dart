@@ -2,6 +2,7 @@ import 'package:compus_connect/pages/admin/admin_components.dart';
 import 'package:compus_connect/pages/admin/admin_theme.dart';
 import 'package:compus_connect/pages/teacher/teacher_data.dart';
 import 'package:compus_connect/pages/teacher/teacher_models.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -100,12 +101,12 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
       setState(() => _currentWeekAttendance = attendanceMap);
     } on PostgrestException catch (e) {
       if (e.code == '42P01' || e.code == 'PGRST205') {
-        _toast('Attendance table not created yet.', AdminColors.red);
+        _toast('Attendance feature is not ready yet.', AdminColors.red);
       } else {
-        _toast('Load failed: ${e.message}', AdminColors.red);
+        _toast(friendlyError(e, fallback: 'Could not load attendance.'), AdminColors.red);
       }
     } catch (e) {
-      _toast('Load failed: $e', AdminColors.red);
+      _toast(friendlyError(e, fallback: 'Could not load attendance.'), AdminColors.red);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -137,12 +138,12 @@ class _TeacherAttendancePageState extends State<TeacherAttendancePage> {
       }
     } on PostgrestException catch (e) {
       if (e.code == '42P01' || e.code == 'PGRST205') {
-        _toast('Attendance table not created yet.', AdminColors.red);
+        _toast('Attendance feature is not ready yet.', AdminColors.red);
       } else {
-        _toast('Save failed: ${e.message}', AdminColors.red);
+        _toast(friendlyError(e, fallback: 'Could not save attendance.'), AdminColors.red);
       }
     } catch (e) {
-      _toast('Save failed: $e', AdminColors.red);
+      _toast(friendlyError(e, fallback: 'Could not save attendance.'), AdminColors.red);
     } finally {
       if (mounted) setState(() => _loading = false);
     }

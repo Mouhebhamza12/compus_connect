@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import '../../widgets/studentCard.dart';
 import '../../widgets/homeHeader.dart';
 import '../../widgets/servicesCard.dart';
@@ -122,7 +123,7 @@ class _StudentHomePageState extends State<StudentHomePage> {
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e, fallback: 'Could not load your profile. Please try again.');
       });
     } finally {
       setState(() {

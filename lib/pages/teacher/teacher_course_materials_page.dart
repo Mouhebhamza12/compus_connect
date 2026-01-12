@@ -1,5 +1,6 @@
 import 'package:compus_connect/pages/admin/admin_theme.dart';
 import 'package:compus_connect/pages/teacher/teacher_data.dart';
+import 'package:compus_connect/utilities/friendly_error.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -78,16 +79,11 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
       await _refresh();
       _toast('Uploaded $fileName', AdminColors.green);
     } on StorageException catch (e) {
-      final msg = _storageErrorMessage(e.message);
-      _toast(msg, AdminColors.red);
+      _toast(friendlyError(e, fallback: 'Upload failed. Please try again.'), AdminColors.red);
     } on PostgrestException catch (e) {
-      if (e.code == '42P01' || e.code == 'PGRST205') {
-        _toast('course_materials table not ready yet.', AdminColors.red);
-      } else {
-        _toast('Save failed: ${e.message}', AdminColors.red);
-      }
+      _toast(friendlyError(e, fallback: 'Upload failed. Please try again.'), AdminColors.red);
     } catch (e) {
-      _toast('Upload failed: $e', AdminColors.red);
+      _toast(friendlyError(e, fallback: 'Upload failed. Please try again.'), AdminColors.red);
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -120,7 +116,7 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
       await _refresh();
       _toast('Deleted', AdminColors.red);
     } catch (e) {
-      _toast('Delete failed: $e', AdminColors.red);
+      _toast(friendlyError(e, fallback: 'Could not delete the file.'), AdminColors.red);
     }
   }
 
@@ -152,14 +148,6 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
         content: Text(msg),
       ),
     );
-  }
-
-  String _storageErrorMessage(String message) {
-    final lower = message.toLowerCase();
-    if (lower.contains('bucket') && lower.contains('not')) {
-      return "Upload failed: storage bucket '${widget.dataService.courseFilesBucket}' not found. Create it in Supabase Storage.";
-    }
-    return 'Upload failed: $message';
   }
 
   @override
@@ -201,7 +189,7 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
                 }
                 if (snap.hasError) {
                   return _ErrorState(
-                    message: _friendlyError(snap.error),
+                    message: friendlyError(snap.error ?? Exception('Unknown error'), fallback: 'Could not load files.'),
                     onRetry: _refresh,
                   );
                 }
@@ -245,13 +233,6 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
     );
   }
 
-  String _friendlyError(Object? e) {
-    final s = e?.toString() ?? 'Unknown error';
-    if (s.contains('PGRST205') || s.contains('42P01')) return 'Database table is missing. Create course_materials.';
-    if (s.contains('permission') || s.contains('RLS')) return 'Permission denied (RLS). Check policies for teachers.';
-    if (s.contains('SocketException')) return 'No internet connection.';
-    return s;
-  }
 }
 
 class _HeaderCard extends StatelessWidget {
