@@ -44,7 +44,7 @@ class ServicesTab extends StatelessWidget {
         DetailedServiceItem(
           icon: Icons.menu_book,
           title: "Courses",
-          subtitle: "View your enrolled courses & materials",
+          subtitle: "View your enrolled courses and materials",
           color: Color(0xFF4F8EF7),
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoursesPage())),
         ),

@@ -1,25 +1,34 @@
 import 'package:flutter/material.dart';
 
+// Keeps all teacher data together so the UI can stay simple.
 class TeacherBundle {
-  final List<Map<String, dynamic>> courses;
-  final List<Map<String, dynamic>> groups;
-  final List<Map<String, dynamic>> students;
+  final List<Map<String, dynamic>> myCoursesList;
+  final List<Map<String, dynamic>> myGroupsList;
+  final List<Map<String, dynamic>> myStudentsList;
+  final Map<String, List<Map<String, dynamic>>> groupsForCourse;
+  final Map<String, List<Map<String, dynamic>>> studentsInGroup;
   final String teacherName;
   final String teacherEmail;
 
   const TeacherBundle({
-    required this.courses,
-    required this.groups,
-    required this.students,
+    required this.myCoursesList,
+    required this.myGroupsList,
+    required this.myStudentsList,
+    required this.groupsForCourse,
+    required this.studentsInGroup,
     required this.teacherName,
     required this.teacherEmail,
   });
 
-  int get courseCount => courses.length;
-  int get groupCount => groups.length;
-  int get studentCount => students.length;
+  int get courseCount => myCoursesList.length;
+  int get groupCount => myGroupsList.length;
+  int get studentCount => myStudentsList.length;
+
+  List<Map<String, dynamic>> getGroupsForCourse(String courseId) => groupsForCourse[courseId] ?? const [];
+  List<Map<String, dynamic>> getStudentsInGroup(String groupId) => studentsInGroup[groupId] ?? const [];
 }
 
+// Small data holder for simple stat cards.
 class StatCardData {
   final String label;
   final String value;

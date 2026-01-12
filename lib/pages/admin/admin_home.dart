@@ -326,9 +326,12 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
         ),
       3 => AdminGroupsTab(
           groups: data.groups,
+          students: data.students,
+          courses: data.courses,
           busy: _busy,
           onCreateGroup: _showCreateGroup,
           onAssignStudent: (id) => _showAssignStudentToGroup(id, data),
+          onAssignCourse: _assignCourseToGroup,
           onDeleteGroup: _deleteGroup,
         ),
       4 => AdminCoursesTab(
@@ -512,6 +515,34 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
         ],
       ),
     );
+  }
+
+  // Links a course to a group so teachers can see the right students.
+  Future<void> _assignCourseToGroup(String groupId, String courseId) async {
+    if (groupId.isEmpty || courseId.isEmpty) return;
+    bool didAssign = false;
+
+    await _mutate(() async {
+      try {
+        await Supabase.instance.client.from("course_groups").upsert({
+          "group_id": groupId,
+          "course_id": courseId,
+        });
+      } on PostgrestException catch (e) {
+        if (e.code == '42P01' || e.code == 'PGRST205') {
+          await Supabase.instance.client.from("groups").update({
+            "course_id": courseId,
+          }).eq("id", groupId);
+        } else {
+          rethrow;
+        }
+      }
+      didAssign = true;
+    });
+
+    if (didAssign) {
+      _toast("Course assigned to group", AdminColors.green, icon: Icons.check_circle_outline);
+    }
   }
 
   void _toast(String msg, Color c, {IconData? icon}) {

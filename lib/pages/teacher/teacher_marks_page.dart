@@ -1,19 +1,21 @@
 import 'dart:collection';
 
+import 'package:compus_connect/pages/admin/admin_components.dart';
+import 'package:compus_connect/pages/admin/admin_theme.dart';
+import 'package:compus_connect/pages/teacher/teacher_data.dart';
+import 'package:compus_connect/pages/teacher/teacher_models.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'teacher_models.dart';
-import 'teacher_theme.dart';
-import 'teacher_widgets.dart';
-
 class TeacherMarksPage extends StatefulWidget {
   final TeacherBundle data;
+  final TeacherDataService dataService;
   final String? focusCourseId;
 
   const TeacherMarksPage({
     super.key,
     required this.data,
+    required this.dataService,
     this.focusCourseId,
   });
 
@@ -22,11 +24,11 @@ class TeacherMarksPage extends StatefulWidget {
 }
 
 class _TeacherMarksPageState extends State<TeacherMarksPage> {
-  String? _courseId;
-  String? _groupId;
+  String? _pickedCourseId;
+  String? _pickedGroupId;
 
   bool _loading = false;
-  bool _dirty = false;
+  bool _hasUnsavedChanges = false;
 
   final List<String> _assessments = const [
     'Course Work',
@@ -34,23 +36,20 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
     'TD',
     'Exam',
   ];
-  String _assessment = 'Course Work';
+  String _pickedAssessment = 'Course Work';
 
   bool _autoLetter = true;
 
-  /// studentId -> controllers
+  // studentId -> controllers
   final Map<String, _MarkControllers> _controllers = {};
 
   @override
   void initState() {
     super.initState();
-
-    _courseId =
-        widget.focusCourseId ?? (widget.data.courses.isNotEmpty ? widget.data.courses.first['id']?.toString() : null);
-
-    _groupId = widget.data.groups.isNotEmpty ? widget.data.groups.first['id']?.toString() : null;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    _pickedCourseId =
+        widget.focusCourseId ?? (widget.data.myCoursesList.isNotEmpty ? widget.data.myCoursesList.first['id']?.toString() : null);
+    _updateGroupSelection();
+    WidgetsBinding.instance.addPostFrameCallback((_) => loadMarksForGroup());
   }
 
   @override
@@ -61,45 +60,56 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
     super.dispose();
   }
 
-  /* ---------------- Students helpers ---------------- */
-
-  Map<String, List<Map<String, dynamic>>> get _studentsByGroup {
-    final map = <String, List<Map<String, dynamic>>>{};
-    for (final s in widget.data.students) {
-      final gid = (s['group_id'] ?? '').toString();
-      if (gid.isEmpty) continue;
-      map.putIfAbsent(gid, () => []).add(s);
-    }
-    return map;
+  List<Map<String, dynamic>> get _groupsForPickedCourse {
+    final courseId = _pickedCourseId;
+    if (courseId == null) return const [];
+    final linked = widget.data.groupsForCourse[courseId] ?? const [];
+    return linked.isEmpty ? widget.data.myGroupsList : linked;
   }
 
-  List<Map<String, dynamic>> get _students => _groupId == null ? const [] : (_studentsByGroup[_groupId] ?? const []);
+  List<Map<String, dynamic>> get _studentsInPickedGroup {
+    final groupId = _pickedGroupId;
+    if (groupId == null) return const [];
+    return widget.data.studentsInGroup[groupId] ?? const [];
+  }
 
-  String _sid(Map<String, dynamic> s) => (s['user_id'] ?? '').toString();
-  String _name(Map<String, dynamic> s) => (s['full_name'] ?? 'Student').toString();
-  String _email(Map<String, dynamic> s) => (s['email'] ?? '').toString();
+  String _studentId(Map<String, dynamic> student) => (student['user_id'] ?? '').toString();
+  String _studentName(Map<String, dynamic> student) => (student['full_name'] ?? 'Student').toString();
+  String _studentEmail(Map<String, dynamic> student) => (student['email'] ?? '').toString();
 
-  bool get _canInteract => !_loading && _courseId != null && _groupId != null;
+  bool get _canTap => !_loading && _pickedCourseId != null && _pickedGroupId != null;
 
-  /* ---------------- Load / Save ---------------- */
+  // Picks the first group for the selected course if needed.
+  void _updateGroupSelection() {
+    final groups = _groupsForPickedCourse;
+    if (groups.isEmpty) {
+      _pickedGroupId = null;
+      return;
+    }
+    final stillValid = groups.any((g) => (g['id'] ?? '').toString() == _pickedGroupId);
+    if (!stillValid) {
+      _pickedGroupId = (groups.first['id'] ?? '').toString();
+    }
+  }
 
-  Future<void> _load() async {
-    final courseId = _courseId;
+  // Loads marks for the chosen group and assessment.
+  Future<void> loadMarksForGroup() async {
+    final courseId = _pickedCourseId;
     if (courseId == null) return;
 
-    if (_dirty) {
+    if (_hasUnsavedChanges) {
       final proceed = await _confirmDiscard();
       if (proceed != true) return;
     }
 
     setState(() {
       _loading = true;
-      _dirty = false;
+      _hasUnsavedChanges = false;
     });
 
     try {
-      final students = _students;
-      final ids = students.map(_sid).where((x) => x.isNotEmpty).toList();
+      final students = _studentsInPickedGroup;
+      final ids = students.map(_studentId).where((x) => x.isNotEmpty).toList();
 
       final keep = HashSet<String>.from(ids);
       _controllers.removeWhere((k, v) {
@@ -110,7 +120,7 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
         return false;
       });
       for (final id in ids) {
-        _controllers.putIfAbsent(id, () => _MarkControllers(onChanged: _markDirty));
+        _controllers.putIfAbsent(id, () => _MarkControllers(onChanged: markHasChanges));
       }
 
       if (ids.isEmpty) {
@@ -118,21 +128,19 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
         return;
       }
 
-      final res = await Supabase.instance.client
-          .from('grades')
-          .select('student_id, score, total, letter, assessment')
-          .eq('course_id', courseId)
-          .eq('assessment', _assessment)
-          .inFilter('student_id', ids);
+      final rows = await widget.dataService.getMarksForStudents(
+        courseId: courseId,
+        assessmentName: _pickedAssessment,
+        studentIds: ids,
+      );
 
       for (final id in ids) {
         _controllers[id]!.setAll(score: '', total: '', letter: '');
       }
 
-      for (final row in (res as List)) {
+      for (final row in rows) {
         final id = (row['student_id'] ?? '').toString();
         if (!_controllers.containsKey(id)) continue;
-
         _controllers[id]!.setAll(
           score: (row['score'] ?? '').toString(),
           total: (row['total'] ?? '').toString(),
@@ -154,11 +162,12 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
     }
   }
 
-  Future<void> _save() async {
-    final courseId = _courseId;
+  // Saves all marks currently typed by the teacher.
+  Future<void> saveStudentMarks() async {
+    final courseId = _pickedCourseId;
     if (courseId == null) return;
 
-    final students = _students;
+    final students = _studentsInPickedGroup;
     if (students.isEmpty) {
       _toast('No students in this group.', AdminColors.orange);
       return;
@@ -169,24 +178,24 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
     try {
       final payload = <Map<String, dynamic>>[];
 
-      for (final s in students) {
-        final id = _sid(s);
+      for (final student in students) {
+        final id = _studentId(student);
         final c = _controllers[id];
         if (id.isEmpty || c == null) continue;
 
         final score = double.tryParse(c.score.text.trim());
         final total = double.tryParse(c.total.text.trim());
-        final letter = c.letter.text.trim().toUpperCase();
+        final typedLetter = c.letter.text.trim().toUpperCase();
 
-        final hasAnything = (score != null) || (total != null) || letter.isNotEmpty;
+        final hasAnything = (score != null) || (total != null) || typedLetter.isNotEmpty;
         if (!hasAnything) continue;
 
-        final finalLetter = _autoLetter ? _computeLetter(score, total, fallback: letter) : letter;
+        final finalLetter = _autoLetter ? computeLetterGrade(score, total, fallback: typedLetter) : typedLetter;
 
         payload.add({
           'student_id': id,
           'course_id': courseId,
-          'assessment': _assessment,
+          'assessment': _pickedAssessment,
           'score': score,
           'total': total,
           'letter': finalLetter,
@@ -199,10 +208,10 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
         return;
       }
 
-      await Supabase.instance.client.from('grades').upsert(payload, onConflict: 'course_id,student_id,assessment');
+      await widget.dataService.saveStudentMarks(payload);
 
       if (mounted) {
-        setState(() => _dirty = false);
+        setState(() => _hasUnsavedChanges = false);
         _toast('Marks saved', AdminColors.green);
       }
     } on PostgrestException catch (e) {
@@ -218,13 +227,13 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
     }
   }
 
-  /* ---------------- Logic helpers ---------------- */
-
-  void _markDirty() {
-    if (!_dirty) setState(() => _dirty = true);
+  // Marks that the user has typed something new.
+  void markHasChanges() {
+    if (!_hasUnsavedChanges) setState(() => _hasUnsavedChanges = true);
   }
 
-  String _computeLetter(double? score, double? total, {required String fallback}) {
+  // Turns a numeric score into a simple letter grade.
+  String computeLetterGrade(double? score, double? total, {required String fallback}) {
     if (score == null || total == null || total <= 0) return fallback;
     final pct = (score / total) * 100.0;
 
@@ -263,45 +272,22 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
     );
   }
 
-  InputDecoration _input(String label) {
-    return InputDecoration(
-      labelText: label,
-      filled: true,
-      fillColor: AdminColors.smoke,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AdminColors.border),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AdminColors.border),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AdminColors.uniBlue, width: 1.6),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    );
-  }
-
-  /* ---------------- UI ---------------- */
-
   @override
   Widget build(BuildContext context) {
-    final courses = widget.data.courses;
-    final groups = widget.data.groups;
-    final students = _students;
+    final courses = widget.data.myCoursesList;
+    final groups = widget.data.myGroupsList;
+    final students = _studentsInPickedGroup;
 
     if (courses.isEmpty || groups.isEmpty) {
-      return const EmptyCard('Add courses and groups to start adding marks.');
+      return const EmptyState('Add courses and groups to start adding marks.');
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
+      padding: const EdgeInsets.all(18),
       children: [
         const SectionTitle('Marks'),
         const SizedBox(height: 10),
-        TeacherPanel(
+        buildCard(
           child: LayoutBuilder(
             builder: (context, constraints) {
               final narrow = constraints.maxWidth < 360;
@@ -329,56 +315,59 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
                 children: [
                   rowFields(
                     left: DropdownButtonFormField<String>(
-                      initialValue: _courseId,
+                      initialValue: _pickedCourseId,
                       decoration: _input('Course'),
-                      items: courses.map((c) {
+                      items: courses.map((course) {
                         return DropdownMenuItem(
-                          value: (c['id'] ?? '').toString(),
-                          child: Text((c['title'] ?? 'Course').toString(), overflow: TextOverflow.ellipsis),
+                          value: (course['id'] ?? '').toString(),
+                          child: Text((course['title'] ?? 'Course').toString(), overflow: TextOverflow.ellipsis),
                         );
                       }).toList(),
-                      onChanged: !_canInteract
+                      onChanged: !_canTap
                           ? null
-                          : (v) async {
-                              setState(() => _courseId = v);
-                              await _load();
+                          : (value) async {
+                              setState(() {
+                                _pickedCourseId = value;
+                                _updateGroupSelection();
+                              });
+                              await loadMarksForGroup();
                             },
                     ),
                     right: DropdownButtonFormField<String>(
-                      initialValue: _groupId,
+                      initialValue: _pickedGroupId,
                       decoration: _input('Group'),
-                      items: groups.map((g) {
+                      items: _groupsForPickedCourse.map((group) {
                         return DropdownMenuItem(
-                          value: (g['id'] ?? '').toString(),
-                          child: Text((g['name'] ?? 'Group').toString(), overflow: TextOverflow.ellipsis),
+                          value: (group['id'] ?? '').toString(),
+                          child: Text((group['name'] ?? 'Group').toString(), overflow: TextOverflow.ellipsis),
                         );
                       }).toList(),
-                      onChanged: !_canInteract
+                      onChanged: !_canTap
                           ? null
-                          : (v) async {
-                              setState(() => _groupId = v);
-                              await _load();
+                          : (value) async {
+                              setState(() => _pickedGroupId = value);
+                              await loadMarksForGroup();
                             },
                     ),
                   ),
                   const SizedBox(height: 12),
                   rowFields(
                     left: DropdownButtonFormField<String>(
-                      initialValue: _assessment,
+                      initialValue: _pickedAssessment,
                       decoration: _input('Assessment'),
                       items: _assessments.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
-                      onChanged: !_canInteract
+                      onChanged: !_canTap
                           ? null
-                          : (v) async {
-                              if (v == null) return;
-                              setState(() => _assessment = v);
-                              await _load();
+                          : (value) async {
+                              if (value == null) return;
+                              setState(() => _pickedAssessment = value);
+                              await loadMarksForGroup();
                             },
                     ),
                     right: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: AdminColors.smoke,
+                        color: const Color(0xFFF6F8FB),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: AdminColors.border),
                       ),
@@ -399,24 +388,13 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
                   rowFields(
                     gap: 10,
                     left: OutlinedButton.icon(
-                      onPressed: _loading ? null : _load,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AdminColors.navy,
-                        side: const BorderSide(color: AdminColors.border),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
+                      onPressed: _loading ? null : loadMarksForGroup,
                       icon: const Icon(Icons.refresh),
                       label: const Text('Load', style: TextStyle(fontWeight: FontWeight.w900)),
                     ),
                     right: ElevatedButton.icon(
-                      onPressed: (_loading || students.isEmpty) ? null : _save,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AdminColors.green,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
+                      onPressed: (_loading || students.isEmpty) ? null : saveStudentMarks,
+                      style: ElevatedButton.styleFrom(backgroundColor: AdminColors.green, foregroundColor: Colors.white),
                       icon: const Icon(Icons.save_outlined),
                       label: const Text('Save', style: TextStyle(fontWeight: FontWeight.w900)),
                     ),
@@ -425,7 +403,7 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
                     const SizedBox(height: 12),
                     const LinearProgressIndicator(minHeight: 6, color: AdminColors.uniBlue, backgroundColor: AdminColors.border),
                   ],
-                  if (_dirty) ...[
+                  if (_hasUnsavedChanges) ...[
                     const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -455,17 +433,14 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
         ),
         const SizedBox(height: 12),
         if (students.isEmpty)
-          const EmptyCard('This group has no students assigned.')
+          const EmptyState('This group has no students assigned.')
         else
-          TeacherPanel(
+          buildCard(
             child: Column(
               children: [
                 Row(
                   children: [
-                    const Text(
-                      'Students',
-                      style: TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy),
-                    ),
+                    const Text('Students', style: TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy)),
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -481,19 +456,19 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                ...students.map((s) {
-                  final id = _sid(s);
-                  final c = _controllers[id] ?? _MarkControllers(onChanged: _markDirty);
+                ...students.map((student) {
+                  final id = _studentId(student);
+                  final c = _controllers[id] ?? _MarkControllers(onChanged: markHasChanges);
                   _controllers.putIfAbsent(id, () => c);
 
                   return _MarkRow(
-                    name: _name(s),
-                    email: _email(s),
+                    name: _studentName(student),
+                    email: _studentEmail(student),
                     score: c.score,
                     total: c.total,
                     letter: c.letter,
                     enabled: !_loading,
-                    onChanged: _markDirty,
+                    onChanged: markHasChanges,
                   );
                 }),
               ],
@@ -502,9 +477,40 @@ class _TeacherMarksPageState extends State<TeacherMarksPage> {
       ],
     );
   }
-}
 
-/* ---------------- Controllers ---------------- */
+  InputDecoration _input(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: const Color(0xFFF6F8FB),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AdminColors.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AdminColors.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AdminColors.uniBlue, width: 1.6),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+    );
+  }
+
+  Widget buildCard({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AdminColors.border),
+      ),
+      child: child,
+    );
+  }
+}
 
 class _MarkControllers {
   final TextEditingController score = TextEditingController();
@@ -531,8 +537,6 @@ class _MarkControllers {
   }
 }
 
-/* ---------------- UI pieces ---------------- */
-
 class _MarkRow extends StatelessWidget {
   final String name;
   final String email;
@@ -558,7 +562,7 @@ class _MarkRow extends StatelessWidget {
     return InputDecoration(
       labelText: label,
       filled: true,
-      fillColor: AdminColors.smoke,
+      fillColor: const Color(0xFFF6F8FB),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: AdminColors.border),
@@ -581,7 +585,7 @@ class _MarkRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        gradient: AdminColors.cardTint,
+        color: const Color(0xFFF8FAFF),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AdminColors.border),
       ),
@@ -616,7 +620,7 @@ class _MarkRow extends StatelessWidget {
                       email,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12, color: AdminColors.muted),
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF7A8CA3)),
                     ),
                   ],
                 ),

@@ -18,7 +18,7 @@ class ServiceItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: onTap, // ✅ now it works
+      onTap: onTap, 
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Column(

@@ -33,6 +33,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _handleLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+    FocusScope.of(context).unfocus();
 
     if (email.isEmpty || password.isEmpty) {
       setState(() {
@@ -88,9 +89,17 @@ class _LoginPageState extends State<LoginPage> {
     final isLoading =
         authState.status == AuthStatus.loading || authState.status == AuthStatus.checking;
     final authError = authState.status == AuthStatus.failure ? authState.message : null;
+    final activeError = _error ?? authError;
     return BlocListener<AuthBloc, AuthState>(
       listenWhen: (prev, next) => prev.status != next.status,
       listener: (context, state) {
+        if (state.status == AuthStatus.failure && state.message?.isNotEmpty == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(state.message!)),
+          );
+          return;
+        }
+
         if (state.status == AuthStatus.authenticated && state.session != null) {
           final session = state.session!;
           switch (session.role) {
@@ -134,6 +143,7 @@ class _LoginPageState extends State<LoginPage> {
         }
       },
       child: Scaffold(
+        resizeToAvoidBottomInset: true,
         body: AnnotatedRegion<SystemUiOverlayStyle>(
           value: SystemUiOverlayStyle.light,
           child: Container(
@@ -152,34 +162,43 @@ class _LoginPageState extends State<LoginPage> {
                   constraints: const BoxConstraints(maxWidth: 420),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      return SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 28,
-                          vertical: 24,
-                        ),
+                      final isCompact = constraints.maxHeight < 720;
+                      final shouldScroll = constraints.maxHeight < 640;
+                      final logoSize = isCompact ? 150.0 : 200.0;
+                      final titleSize = isCompact ? 22.0 : 26.0;
+                      final subtitleSize = isCompact ? 11.0 : 12.0;
+                      final blurbSize = isCompact ? 11.0 : 12.0;
+                      final sectionSpacing = isCompact ? 24.0 : 32.0;
+                      final fieldSpacing = isCompact ? 12.0 : 14.0;
+                      final rowSpacing = isCompact ? 10.0 : 12.0;
+                      final buttonHeight = isCompact ? 46.0 : 50.0;
+
+                      final content = Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
                         child: ConstrainedBox(
                           constraints: BoxConstraints(
-                            minHeight: constraints.maxHeight - 48,
+                            minHeight: constraints.maxHeight - (isCompact ? 32 : 48),
                           ),
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                            mainAxisSize: MainAxisSize.max,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Column(
                                 children: [
                                   Image.asset(
                                     'assets/images/LogoWhite.png',
-                                    width: 200,
-                                    height: 200,
+                                    width: logoSize,
+                                    height: logoSize,
                                   ),
                                   Transform.translate(
-                                    offset: const Offset(0, -28),
+                                    offset: const Offset(0, -24),
                                     child: Column(
                                       children: [
-                                        const Text(
+                                        Text(
                                           'Campus Connect',
                                           style: TextStyle(
                                             color: Colors.white,
-                                            fontSize: 26,
+                                            fontSize: titleSize,
                                             fontWeight: FontWeight.w800,
                                             letterSpacing: 0.8,
                                             height: 1.0,
@@ -190,17 +209,17 @@ class _LoginPageState extends State<LoginPage> {
                                           'Your Academic Hub',
                                           style: TextStyle(
                                             color: Colors.white.withOpacity(0.55),
-                                            fontSize: 12,
+                                            fontSize: subtitleSize,
                                             height: 1.0,
                                           ),
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          'This is the login page for returning users.',
+                                          'Stay connected to your studies.',
                                           textAlign: TextAlign.center,
                                           style: TextStyle(
                                             color: Colors.white.withOpacity(0.7),
-                                            fontSize: 12,
+                                            fontSize: blurbSize,
                                             height: 1.2,
                                           ),
                                         ),
@@ -210,7 +229,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ],
                               ),
 
-                              const SizedBox(height: 32),
+                              SizedBox(height: sectionSpacing),
 
                               Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -222,7 +241,7 @@ class _LoginPageState extends State<LoginPage> {
                                     controller: _emailController,
                                   ),
 
-                                  const SizedBox(height: 14),
+                                  SizedBox(height: fieldSpacing),
 
                                   _inputField(
                                     icon: Icons.lock_outline,
@@ -231,7 +250,7 @@ class _LoginPageState extends State<LoginPage> {
                                     controller: _passwordController,
                                   ),
 
-                                  const SizedBox(height: 12),
+                                  SizedBox(height: rowSpacing),
 
                                   Row(
                                     children: [
@@ -254,11 +273,11 @@ class _LoginPageState extends State<LoginPage> {
                                     ],
                                   ),
 
-                                  const SizedBox(height: 20),
+                                  SizedBox(height: isCompact ? 16 : 20),
 
                                   SizedBox(
                                     width: double.infinity,
-                                    height: 50,
+                                    height: buttonHeight,
                                     child: ElevatedButton(
                                       onPressed: isLoading ? null : _handleLogin,
                                       style: ElevatedButton.styleFrom(
@@ -301,24 +320,35 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   ),
 
-                                  if (_error != null) ...[
+                                  if (activeError != null) ...[
                                     const SizedBox(height: 12),
-                                    Text(
-                                      _error!,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: Colors.redAccent,
-                                        fontSize: 13,
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
-                                    ),
-                                  ] else if (authError != null) ...[
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      authError,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: Colors.redAccent,
-                                        fontSize: 13,
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(
+                                            Icons.error_outline,
+                                            color: Colors.redAccent,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              activeError,
+                                              style: const TextStyle(
+                                                color: Colors.redAccent,
+                                                fontSize: 13,
+                                                height: 1.2,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
@@ -351,6 +381,13 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                       );
+
+                      if (!shouldScroll) return content;
+
+                      return SingleChildScrollView(
+                        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+                        child: content,
+                      );
                     },
                   ),
                 ),
@@ -362,7 +399,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // ===== INPUT FIELD =====
   Widget _inputField({
     required IconData icon,
     required String hint,

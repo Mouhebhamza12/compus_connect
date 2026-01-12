@@ -1,5 +1,6 @@
 import 'package:compus_connect/bloc/auth_bloc.dart';
 import 'package:compus_connect/pages/admin/admin_home.dart';
+import 'package:compus_connect/pages/app_loading.dart';
 import 'package:compus_connect/pages/loginPage.dart';
 import 'package:compus_connect/pages/student/student_home.dart';
 import 'package:compus_connect/pages/teacher_home.dart';
@@ -18,9 +19,7 @@ class RoleGate extends StatelessWidget {
         if (state.status == AuthStatus.initial ||
             state.status == AuthStatus.checking ||
             state.status == AuthStatus.loading) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const AppLoadingPage(message: 'Checking your session...');
         }
 
         if (state.status == AuthStatus.authenticated && state.session != null) {

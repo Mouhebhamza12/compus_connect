@@ -1,17 +1,20 @@
+import 'package:compus_connect/pages/admin/admin_theme.dart';
+import 'package:compus_connect/pages/teacher/teacher_data.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'teacher_theme.dart'; // AdminColors
-
+// Handles viewing and uploading course files.
 class TeacherCourseMaterialsPage extends StatefulWidget {
+  final TeacherDataService dataService;
   final String courseId;
   final String title;
   final String code;
 
   const TeacherCourseMaterialsPage({
     super.key,
+    required this.dataService,
     required this.courseId,
     required this.title,
     required this.code,
@@ -25,33 +28,138 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
   late Future<List<Map<String, dynamic>>> _future;
 
   bool _uploading = false;
-  double? _progress; // optional UI hook (Supabase Storage doesn't stream progress here)
 
   @override
   void initState() {
     super.initState();
-    _future = _loadMaterials();
+    _future = _loadCourseFiles();
   }
 
-  Future<List<Map<String, dynamic>>> _loadMaterials() async {
+  // Gets the file list for this course.
+  Future<List<Map<String, dynamic>>> _loadCourseFiles() async {
     try {
-      final res = await Supabase.instance.client
-          .from('course_materials')
-          .select('id, title, url, uploaded_at, storage_path')
-          .eq('course_id', widget.courseId)
-          .order('uploaded_at', ascending: false);
-
-      return (res as List).cast<Map<String, dynamic>>();
+      return await widget.dataService.getCourseFiles(courseId: widget.courseId);
     } on PostgrestException catch (e) {
-      // table missing / schema cache
       if (e.code == '42P01' || e.code == 'PGRST205') return [];
       rethrow;
     }
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _loadMaterials());
+    setState(() => _future = _loadCourseFiles());
     await _future;
+  }
+
+  // Lets the teacher pick a file and upload it.
+  Future<void> uploadCourseFile() async {
+    setState(() => _uploading = true);
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'png', 'jpg', 'jpeg'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.single;
+      if (file.bytes == null) {
+        throw Exception('No file bytes. Try selecting a smaller file.');
+      }
+
+      final fileName = file.name.trim();
+      await widget.dataService.uploadCourseFile(
+        courseId: widget.courseId,
+        fileName: fileName,
+        fileBytes: file.bytes!,
+      );
+
+      await _refresh();
+      _toast('Uploaded $fileName', AdminColors.green);
+    } on StorageException catch (e) {
+      final msg = _storageErrorMessage(e.message);
+      _toast(msg, AdminColors.red);
+    } on PostgrestException catch (e) {
+      if (e.code == '42P01' || e.code == 'PGRST205') {
+        _toast('course_materials table not ready yet.', AdminColors.red);
+      } else {
+        _toast('Save failed: ${e.message}', AdminColors.red);
+      }
+    } catch (e) {
+      _toast('Upload failed: $e', AdminColors.red);
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _confirmDelete({
+    required dynamic id,
+    required String storagePath,
+    required String title,
+  }) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete material?'),
+        content: Text('This will remove "$title" from the course files.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: AdminColors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    try {
+      await widget.dataService.deleteCourseFile(fileId: id, storagePath: storagePath);
+      await _refresh();
+      _toast('Deleted', AdminColors.red);
+    } catch (e) {
+      _toast('Delete failed: $e', AdminColors.red);
+    }
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+      _toast('Invalid URL', AdminColors.red);
+      return;
+    }
+
+    final ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
+    if (!ok) _toast('Could not open file.', AdminColors.red);
+  }
+
+  String _formatUploadedAt(dynamic v) {
+    if (v == null) return '';
+    if (v is DateTime) return v.toLocal().toString().split('.').first;
+    final dt = DateTime.tryParse(v.toString());
+    if (dt == null) return v.toString();
+    return dt.toLocal().toString().split('.').first;
+  }
+
+  void _toast(String msg, Color c) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: c,
+        behavior: SnackBarBehavior.floating,
+        content: Text(msg),
+      ),
+    );
+  }
+
+  String _storageErrorMessage(String message) {
+    final lower = message.toLowerCase();
+    if (lower.contains('bucket') && lower.contains('not')) {
+      return "Upload failed: storage bucket '${widget.dataService.courseFilesBucket}' not found. Create it in Supabase Storage.";
+    }
+    return 'Upload failed: $message';
   }
 
   @override
@@ -59,18 +167,15 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
     return Scaffold(
       backgroundColor: AdminColors.bg,
       appBar: AppBar(
-        title: Text(widget.title),
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
+        title: Text(widget.title, style: const TextStyle(color: AdminColors.navy, fontWeight: FontWeight.w900)),
+        backgroundColor: Colors.white,
         elevation: 0,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(gradient: AdminColors.heroGradient),
-        ),
+        iconTheme: const IconThemeData(color: AdminColors.navy),
         actions: [
           IconButton(
             tooltip: 'Refresh',
             onPressed: _refresh,
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: const Icon(Icons.refresh, color: AdminColors.uniBlue),
           ),
           const SizedBox(width: 6),
         ],
@@ -78,7 +183,7 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AdminColors.uniBlue,
         foregroundColor: Colors.white,
-        onPressed: _uploading ? null : _pickAndUpload,
+        onPressed: _uploading ? null : uploadCourseFile,
         icon: _uploading
             ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
             : const Icon(Icons.cloud_upload_outlined),
@@ -104,9 +209,9 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
                 final materials = snap.data ?? [];
                 if (materials.isEmpty) {
                   return _EmptyState(
-                    title: 'No materials yet',
-                    subtitle: 'Upload PDFs, Word documents or slides for ${widget.code}.',
-                    onUpload: _uploading ? null : _pickAndUpload,
+                    title: 'No files yet',
+                    subtitle: 'Upload PDFs, images or documents for ${widget.code}.',
+                    onUpload: _uploading ? null : uploadCourseFile,
                   );
                 }
 
@@ -134,8 +239,7 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
               },
             ),
           ),
-
-          if (_uploading) _UploadOverlay(progress: _progress),
+          if (_uploading) const _UploadOverlay(),
         ],
       ),
     );
@@ -148,168 +252,7 @@ class _TeacherCourseMaterialsPageState extends State<TeacherCourseMaterialsPage>
     if (s.contains('SocketException')) return 'No internet connection.';
     return s;
   }
-
-  String _formatUploadedAt(dynamic v) {
-    if (v == null) return '';
-    if (v is DateTime) return v.toLocal().toString().split('.').first;
-    final dt = DateTime.tryParse(v.toString());
-    if (dt == null) return v.toString();
-    return dt.toLocal().toString().split('.').first;
-  }
-
-  Future<void> _pickAndUpload() async {
-    setState(() {
-      _uploading = true;
-      _progress = null;
-    });
-
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['pdf', 'doc', 'docx', 'ppt', 'pptx'],
-        withData: true,
-      );
-
-      if (result == null || result.files.isEmpty) return;
-
-      final file = result.files.single;
-      if (file.bytes == null) {
-        throw Exception('No file bytes. Try selecting a smaller file.');
-      }
-
-      final fileName = file.name.trim();
-      final ext = _fileExt(fileName);
-      final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-
-      // storage path: deterministic + unique
-      final storagePath =
-          'course_${widget.courseId}/${DateTime.now().millisecondsSinceEpoch}_$safeName';
-
-      final storage = Supabase.instance.client.storage.from('course-files');
-
-      await storage.uploadBinary(
-        storagePath,
-        file.bytes!,
-        fileOptions: FileOptions(
-          upsert: true,
-          contentType: _contentTypeFor(ext),
-        ),
-      );
-
-      // public URL (you may want signed URLs instead if bucket is private)
-      final url = storage.getPublicUrl(storagePath);
-
-      final userId = Supabase.instance.client.auth.currentUser?.id;
-
-      await Supabase.instance.client.from('course_materials').insert({
-        'course_id': widget.courseId,
-        'title': fileName,
-        'url': url,
-        'storage_path': storagePath,
-        if (userId != null) 'uploaded_by': userId,
-      });
-
-      await _refresh();
-      _toast('Uploaded $fileName', AdminColors.green);
-    } on StorageException catch (e) {
-      _toast('Upload failed: ${e.message}', AdminColors.red);
-    } on PostgrestException catch (e) {
-      if (e.code == '42P01' || e.code == 'PGRST205') {
-        _toast('course_materials table not ready yet.', AdminColors.red);
-      } else {
-        _toast('Save failed: ${e.message}', AdminColors.red);
-      }
-    } catch (e) {
-      _toast('Upload failed: $e', AdminColors.red);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _uploading = false;
-          _progress = null;
-        });
-      }
-    }
-  }
-
-  Future<void> _confirmDelete({
-    required dynamic id,
-    required String storagePath,
-    required String title,
-  }) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete material?'),
-        content: Text('This will remove "$title" from the course materials.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: AdminColors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (ok != true) return;
-
-    try {
-      // 1) delete DB row
-      await Supabase.instance.client.from('course_materials').delete().eq('id', id);
-
-      // 2) delete storage object if we know its path
-      if (storagePath.trim().isNotEmpty) {
-        await Supabase.instance.client.storage.from('course-files').remove([storagePath]);
-      }
-
-      await _refresh();
-      _toast('Deleted', AdminColors.red);
-    } catch (e) {
-      _toast('Delete failed: $e', AdminColors.red);
-    }
-  }
-
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
-      _toast('Invalid URL', AdminColors.red);
-      return;
-    }
-
-    final ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
-    if (!ok) _toast('Could not open file.', AdminColors.red);
-  }
-
-  String _fileExt(String name) {
-    final i = name.lastIndexOf('.');
-    if (i == -1) return '';
-    return name.substring(i + 1).toLowerCase();
-  }
-
-  String _contentTypeFor(String ext) {
-    return switch (ext) {
-      'pdf' => 'application/pdf',
-      'doc' => 'application/msword',
-      'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'ppt' => 'application/vnd.ms-powerpoint',
-      'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      _ => 'application/octet-stream',
-    };
-  }
-
-  void _toast(String msg, Color c) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: c,
-        behavior: SnackBarBehavior.floating,
-        content: Text(msg),
-      ),
-    );
-  }
 }
-
-/* ---------------- UI Components ---------------- */
 
 class _HeaderCard extends StatelessWidget {
   final String title;
@@ -321,40 +264,23 @@ class _HeaderCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: AdminColors.cardTint,
-        borderRadius: BorderRadius.circular(18),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AdminColors.border),
-        boxShadow: const [AdminColors.softShadow],
       ),
       child: Row(
         children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AdminColors.uniBlue, AdminColors.purple],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.3)),
-            ),
-            child: const Icon(Icons.folder_open, color: Colors.white),
-          ),
+          CircleAvatar(radius: 24, backgroundColor: AdminColors.uniBlue.withOpacity(0.12), child: const Icon(Icons.folder_open, color: AdminColors.uniBlue)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy, fontSize: 16)),
+              Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy)),
               const SizedBox(height: 4),
-              Text(code, style: const TextStyle(color: AdminColors.muted, fontWeight: FontWeight.w700)),
+              Text(code.isEmpty ? 'No code' : code, style: const TextStyle(color: Color(0xFF7A8CA3), fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
               const Text(
-                'Upload PDFs, docs or slides. Students will see them instantly.',
-                style: TextStyle(color: AdminColors.muted, fontSize: 12),
+                'Upload PDFs, docs, or images. Students will see them instantly.',
+                style: TextStyle(color: Color(0xFF7A8CA3), fontSize: 12),
               ),
             ]),
           ),
@@ -386,16 +312,16 @@ class _MaterialTile extends StatelessWidget {
       'pdf' => AdminColors.uniBlue,
       'ppt' || 'pptx' => AdminColors.orange,
       'doc' || 'docx' => AdminColors.purple,
+      'png' || 'jpg' || 'jpeg' => AdminColors.green,
       _ => AdminColors.navy,
     };
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: AdminColors.cardTint,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AdminColors.border),
-        boxShadow: const [AdminColors.softShadow],
       ),
       child: Row(
         children: [
@@ -429,7 +355,7 @@ class _MaterialTile extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 uploadedAt.isEmpty ? '' : uploadedAt,
-                style: const TextStyle(fontSize: 12, color: AdminColors.muted),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7A8CA3)),
               ),
             ]),
           ),
@@ -459,6 +385,7 @@ class _MaterialTile extends StatelessWidget {
       'pdf' => Icons.picture_as_pdf,
       'ppt' || 'pptx' => Icons.slideshow,
       'doc' || 'docx' => Icons.description,
+      'png' || 'jpg' || 'jpeg' => Icons.image_outlined,
       _ => Icons.insert_drive_file,
     };
   }
@@ -505,23 +432,26 @@ class _EmptyState extends StatelessWidget {
           height: 62,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            gradient: AdminColors.heroGradient,
+            color: AdminColors.uniBlue,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withOpacity(0.3)),
           ),
           child: const Icon(Icons.folder_open, color: Colors.white, size: 30),
         ),
         const SizedBox(height: 14),
         Center(
-          child: Text(title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AdminColors.navy)),
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AdminColors.navy),
+          ),
         ),
         const SizedBox(height: 6),
         Center(
-          child: Text(subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13, color: AdminColors.muted, height: 1.3)),
+          child: Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13, color: Color(0xFF7A8CA3), height: 1.3),
+          ),
         ),
         const SizedBox(height: 18),
         Center(
@@ -534,7 +464,7 @@ class _EmptyState extends StatelessWidget {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
             icon: const Icon(Icons.cloud_upload_outlined),
-            label: const Text('Upload material', style: TextStyle(fontWeight: FontWeight.w900)),
+            label: const Text('Upload file', style: TextStyle(fontWeight: FontWeight.w900)),
           ),
         )
       ],
@@ -559,14 +489,17 @@ class _ErrorState extends StatelessWidget {
         const SizedBox(height: 12),
         const Center(
           child: Text(
-            'Could not load materials',
+            'Could not load files',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AdminColors.navy),
           ),
         ),
         const SizedBox(height: 10),
         Center(
-          child: Text(message,
-              textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: AdminColors.muted)),
+          child: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13, color: Color(0xFF7A8CA3)),
+          ),
         ),
         const SizedBox(height: 18),
         Center(
@@ -615,14 +548,14 @@ class _Skeleton extends StatelessWidget {
     return Container(
       height: height,
       decoration: BoxDecoration(
-        gradient: AdminColors.cardTint,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AdminColors.border),
       ),
       padding: const EdgeInsets.all(16),
       child: Container(
         decoration: BoxDecoration(
-          color: AdminColors.navy.withOpacity(0.08),
+          color: const Color(0xFF0F2A44).withOpacity(0.08),
           borderRadius: BorderRadius.circular(14),
         ),
       ),
@@ -631,8 +564,7 @@ class _Skeleton extends StatelessWidget {
 }
 
 class _UploadOverlay extends StatelessWidget {
-  final double? progress;
-  const _UploadOverlay({required this.progress});
+  const _UploadOverlay();
 
   @override
   Widget build(BuildContext context) {
@@ -640,31 +572,29 @@ class _UploadOverlay extends StatelessWidget {
       child: Container(
         color: Colors.black.withOpacity(0.25),
         alignment: Alignment.center,
-      child: Container(
-        width: 280,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          gradient: AdminColors.cardTint,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AdminColors.border),
-          boxShadow: const [AdminColors.softShadow],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Uploading...', style: TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy)),
-              const SizedBox(height: 14),
+        child: Container(
+          width: 280,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AdminColors.border),
+            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 12, offset: Offset(0, 6))],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Text('Uploading...', style: TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy)),
+              SizedBox(height: 14),
               LinearProgressIndicator(
-                value: progress,
                 backgroundColor: AdminColors.border,
                 color: AdminColors.uniBlue,
                 minHeight: 8,
-                borderRadius: BorderRadius.circular(999),
               ),
-              const SizedBox(height: 10),
-              const Text(
+              SizedBox(height: 10),
+              Text(
                 'Please keep the app open.',
-                style: TextStyle(fontSize: 12, color: AdminColors.muted),
+                style: TextStyle(fontSize: 12, color: Color(0xFF7A8CA3)),
               ),
             ],
           ),

@@ -1,64 +1,97 @@
-import 'package:compus_connect/pages/student/course_detail_page.dart';
+import 'package:compus_connect/pages/admin/admin_components.dart';
+import 'package:compus_connect/pages/admin/admin_theme.dart';
 import 'package:compus_connect/pages/teacher/teacher_course_materials_page.dart';
+import 'package:compus_connect/pages/teacher/teacher_course_students_page.dart';
+import 'package:compus_connect/pages/teacher/teacher_data.dart';
 import 'package:compus_connect/pages/teacher/teacher_models.dart';
-import 'package:compus_connect/pages/teacher/teacher_widgets.dart';
 import 'package:flutter/material.dart';
 
-import 'teacher_theme.dart';
-
+// Shows the teacher's courses with quick actions.
 class TeacherCoursesPage extends StatelessWidget {
   final TeacherBundle data;
-  final void Function(String courseId) onNavigateAttendance;
-  final void Function(String courseId) onNavigateMarks;
+  final TeacherDataService dataService;
+  final void Function(String courseId) onOpenAttendance;
+  final void Function(String courseId) onOpenMarks;
 
   const TeacherCoursesPage({
     super.key,
     required this.data,
-    required this.onNavigateAttendance,
-    required this.onNavigateMarks,
+    required this.dataService,
+    required this.onOpenAttendance,
+    required this.onOpenMarks,
   });
 
   @override
   Widget build(BuildContext context) {
-    final courses = data.courses;
+    final myCoursesList = data.myCoursesList;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
+      padding: const EdgeInsets.all(18),
       children: [
-        const SectionTitle('Courses'),
-        const SizedBox(height: 8),
-        if (courses.isEmpty)
-          const EmptyCard('No courses assigned yet.')
+        Row(
+          children: [
+            const Expanded(child: SectionTitle('Courses')),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AdminColors.uniBlue.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${myCoursesList.length}',
+                style: const TextStyle(fontWeight: FontWeight.w800, color: AdminColors.uniBlue),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (myCoursesList.isEmpty)
+          const EmptyState('No courses assigned yet.')
         else
-          ...courses.map((c) {
-            final courseId = (c['id'] ?? '').toString();
-            final title = (c['title'] ?? 'Course').toString();
-            final code = (c['code'] ?? '').toString();
+          ...myCoursesList.map((course) {
+            final courseId = (course['id'] ?? '').toString();
+            final title = (course['title'] ?? 'Course').toString();
+            final code = (course['code'] ?? '').toString();
+
+            final linkedGroups = data.getGroupsForCourse(courseId);
+            final groupsToShow = linkedGroups.isEmpty ? data.myGroupsList : linkedGroups;
+
+            final studentCount = groupsToShow.fold<int>(
+              0,
+              (sum, group) => sum + data.getStudentsInGroup((group['id'] ?? '').toString()).length,
+            );
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: _CourseCard(
                 title: title,
                 code: code,
-                onOpenDetails: () {
+                groupCount: groupsToShow.length,
+                studentCount: studentCount,
+                showAllGroupsNote: linkedGroups.isEmpty && data.myGroupsList.isNotEmpty,
+                onStudents: () {
                   if (courseId.isEmpty) return;
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => CourseDetailPage(
+                      builder: (_) => TeacherCourseStudentsPage(
                         courseId: courseId,
-                        title: title,
-                        code: code,
+                        courseTitle: title,
+                        courseCode: code,
+                        allGroups: data.myGroupsList,
+                        groupsForCourse: data.groupsForCourse,
+                        studentsInGroup: data.studentsInGroup,
                       ),
                     ),
                   );
                 },
-                onMaterials: () {
+                onFiles: () {
                   if (courseId.isEmpty) return;
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => TeacherCourseMaterialsPage(
+                        dataService: dataService,
                         courseId: courseId,
                         title: title,
                         code: code,
@@ -68,11 +101,11 @@ class TeacherCoursesPage extends StatelessWidget {
                 },
                 onAttendance: () {
                   if (courseId.isEmpty) return;
-                  onNavigateAttendance(courseId);
+                  onOpenAttendance(courseId);
                 },
                 onMarks: () {
                   if (courseId.isEmpty) return;
-                  onNavigateMarks(courseId);
+                  onOpenMarks(courseId);
                 },
               ),
             );
@@ -85,96 +118,79 @@ class TeacherCoursesPage extends StatelessWidget {
 class _CourseCard extends StatelessWidget {
   final String title;
   final String code;
-  final VoidCallback onOpenDetails;
-  final VoidCallback onMaterials;
+  final int groupCount;
+  final int studentCount;
+  final bool showAllGroupsNote;
+  final VoidCallback onStudents;
+  final VoidCallback onFiles;
   final VoidCallback onAttendance;
   final VoidCallback onMarks;
 
   const _CourseCard({
     required this.title,
     required this.code,
-    required this.onOpenDetails,
-    required this.onMaterials,
+    required this.groupCount,
+    required this.studentCount,
+    required this.showAllGroupsNote,
+    required this.onStudents,
+    required this.onFiles,
     required this.onAttendance,
     required this.onMarks,
   });
 
   @override
   Widget build(BuildContext context) {
-    return TeacherPanel(
-      padding: const EdgeInsets.all(16),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AdminColors.border),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  gradient: AdminColors.heroGradient,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
-                ),
-                child: const Icon(Icons.menu_book_rounded, color: Colors.white),
-              ),
+              CircleAvatar(radius: 22, backgroundColor: AdminColors.orange.withOpacity(0.12), child: const Icon(Icons.menu_book, color: AdminColors.orange)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy, fontSize: 16),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        _Badge(text: code.isEmpty ? 'No code' : code, color: AdminColors.uniBlue),
-                        const SizedBox(width: 8),
-                        const _Badge(text: 'Teacher view', color: AdminColors.purple),
-                      ],
-                    ),
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.w900, color: AdminColors.navy)),
+                    const SizedBox(height: 3),
+                    Text(code.isEmpty ? 'No code' : code, style: const TextStyle(fontSize: 12, color: Color(0xFF7A8CA3))),
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Open details',
-                onPressed: onOpenDetails,
-                icon: const Icon(Icons.arrow_outward_rounded, color: AdminColors.uniBlue),
-              ),
             ],
           ),
-          const SizedBox(height: 12),
-          const Text(
-            'Material, attendance, and marks are grouped here.',
-            style: TextStyle(color: AdminColors.muted, fontSize: 12),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _MiniChip(text: 'Groups: $groupCount', color: AdminColors.purple),
+              _MiniChip(text: 'Students: $studentCount', color: AdminColors.green),
+            ],
           ),
+          if (showAllGroupsNote) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Showing all groups (no course-group link yet).',
+              style: TextStyle(fontSize: 12, color: Color(0xFF7A8CA3)),
+            ),
+          ],
           const SizedBox(height: 12),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              PillButton(
-                icon: Icons.cloud_upload_outlined,
-                label: 'Materials',
-                color: AdminColors.purple,
-                onTap: onMaterials,
-              ),
-              PillButton(
-                icon: Icons.event_available_outlined,
-                label: 'Attendance',
-                color: AdminColors.orange,
-                onTap: onAttendance,
-              ),
-              PillButton(
-                icon: Icons.grade_outlined,
-                label: 'Marks',
-                color: AdminColors.green,
-                onTap: onMarks,
-              ),
+              OutlinedButton.icon(onPressed: onStudents, icon: const Icon(Icons.groups), label: const Text('Students')),
+              OutlinedButton.icon(onPressed: onFiles, icon: const Icon(Icons.folder_open), label: const Text('Files')),
+              OutlinedButton.icon(onPressed: onAttendance, icon: const Icon(Icons.event_available_outlined), label: const Text('Attendance')),
+              OutlinedButton.icon(onPressed: onMarks, icon: const Icon(Icons.grade_outlined), label: const Text('Marks')),
             ],
           ),
         ],
@@ -183,24 +199,23 @@ class _CourseCard extends StatelessWidget {
   }
 }
 
-class _Badge extends StatelessWidget {
+class _MiniChip extends StatelessWidget {
   final String text;
   final Color color;
 
-  const _Badge({required this.text, required this.color});
+  const _MiniChip({required this.text, required this.color});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.4)),
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 12),
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: color),
       ),
     );
   }
