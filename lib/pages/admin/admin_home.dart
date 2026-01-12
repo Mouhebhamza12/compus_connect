@@ -518,7 +518,10 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
                     Navigator.pop(context);
 
                     await _mutate(() async {
-                      await Supabase.instance.client.from("profiles").update({"group_id": groupId}).eq("user_id", selectedStudent!);
+                      await _assignStudentToGroup(
+                        userId: selectedStudent!,
+                        groupId: groupId,
+                      );
                     });
 
                     _toast("Student assigned", AdminColors.green, icon: Icons.check_circle_outline);
@@ -528,6 +531,43 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
         ],
       ),
     );
+  }
+
+  // Assigns a student to a group, trying both profiles and students tables.
+  Future<void> _assignStudentToGroup({
+    required String userId,
+    required String groupId,
+  }) async {
+    final client = Supabase.instance.client;
+    var updated = false;
+
+    try {
+      final res = await client
+          .from("profiles")
+          .update({"group_id": groupId})
+          .eq("user_id", userId)
+          .select("user_id");
+      updated = (res as List).isNotEmpty;
+    } on PostgrestException catch (e) {
+      if (e.code != '42703') rethrow;
+    }
+
+    try {
+      final res = await client
+          .from("students")
+          .update({"group_id": groupId})
+          .eq("user_id", userId)
+          .select("user_id");
+      updated = updated || (res as List).isNotEmpty;
+    } on PostgrestException catch (e) {
+      if (e.code != '42703') rethrow;
+    }
+
+    if (!updated) {
+      throw Exception(
+        'Could not assign student. Check permissions or add group_id to profiles/students.',
+      );
+    }
   }
 
   // Links a course to a group so teachers can see the right students.

@@ -268,7 +268,7 @@ class TeacherDataService {
   // Loads all students that belong to the given group ids.
   Future<List<Map<String, dynamic>>> _loadMyStudents({required List<dynamic> groupIds}) async {
     if (groupIds.isEmpty) return [];
-    return _safeSelect(
+    final profiles = await _safeSelect(
       () => _db
           .from('profiles')
           .select('user_id, full_name, email, group_id')
@@ -276,6 +276,38 @@ class TeacherDataService {
           .eq('status', 'active')
           .inFilter('group_id', groupIds),
     );
+    if (profiles.isNotEmpty) return profiles;
+
+    final studentRows = await _safeSelect(
+      () => _db.from('students').select('user_id, group_id').inFilter('group_id', groupIds),
+    );
+    if (studentRows.isEmpty) return [];
+
+    final studentUserIds = studentRows
+        .map((row) => row['user_id'])
+        .where((id) => id != null)
+        .map((id) => id.toString())
+        .where((id) => id.isNotEmpty)
+        .toList();
+    if (studentUserIds.isEmpty) return [];
+
+    final profileRows = await _safeSelect(
+      () => _db.from('profiles').select('user_id, full_name, email').inFilter('user_id', studentUserIds),
+    );
+    final profileById = {
+      for (final row in profileRows) (row['user_id'] ?? '').toString(): row,
+    };
+
+    return studentRows.map((row) {
+      final userId = (row['user_id'] ?? '').toString();
+      final profileMap = profileById[userId] ?? const {};
+      return {
+        'user_id': row['user_id'],
+        'group_id': row['group_id'],
+        'full_name': (profileMap['full_name'] ?? 'Student').toString(),
+        'email': (profileMap['email'] ?? '').toString(),
+      };
+    }).toList();
   }
 
   // Groups the list of groups by course id for quick lookups.
