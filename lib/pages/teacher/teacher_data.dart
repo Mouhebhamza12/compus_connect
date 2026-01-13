@@ -268,6 +268,9 @@ class TeacherDataService {
   // Loads all students that belong to the given group ids.
   Future<List<Map<String, dynamic>>> _loadMyStudents({required List<dynamic> groupIds}) async {
     if (groupIds.isEmpty) return [];
+    final groupIdSet = groupIds.map((id) => id?.toString() ?? '').where((id) => id.isNotEmpty).toSet();
+    if (groupIdSet.isEmpty) return [];
+
     final profiles = await _safeSelect(
       () => _db
           .from('profiles')
@@ -278,12 +281,32 @@ class TeacherDataService {
     );
     if (profiles.isNotEmpty) return profiles;
 
+    final looseProfiles = await _safeSelect(
+      () => _db
+          .from('profiles')
+          .select('user_id, full_name, email, group_id')
+          .eq('role', 'student')
+          .eq('status', 'active'),
+    );
+    final looseFiltered = looseProfiles.where((row) {
+      final groupId = (row['group_id'] ?? '').toString();
+      return groupIdSet.contains(groupId);
+    }).toList();
+    if (looseFiltered.isNotEmpty) return looseFiltered;
+
     final studentRows = await _safeSelect(
       () => _db.from('students').select('user_id, group_id').inFilter('group_id', groupIds),
     );
-    if (studentRows.isEmpty) return [];
+    final resolvedStudentRows = studentRows.isNotEmpty
+        ? studentRows
+        : await _safeSelect(() => _db.from('students').select('user_id, group_id'));
+    final filteredStudentRows = resolvedStudentRows.where((row) {
+      final groupId = (row['group_id'] ?? '').toString();
+      return groupIdSet.contains(groupId);
+    }).toList();
+    if (filteredStudentRows.isEmpty) return [];
 
-    final studentUserIds = studentRows
+    final studentUserIds = filteredStudentRows
         .map((row) => row['user_id'])
         .where((id) => id != null)
         .map((id) => id.toString())
@@ -298,7 +321,7 @@ class TeacherDataService {
       for (final row in profileRows) (row['user_id'] ?? '').toString(): row,
     };
 
-    return studentRows.map((row) {
+    return filteredStudentRows.map((row) {
       final userId = (row['user_id'] ?? '').toString();
       final profileMap = profileById[userId] ?? const {};
       return {

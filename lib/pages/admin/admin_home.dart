@@ -8,6 +8,7 @@ import 'admin_groups.dart';
 import 'admin_models.dart';
 import 'admin_overview.dart';
 import 'admin_pending.dart';
+import 'admin_schedule.dart';
 import 'admin_theme.dart';
 import 'admin_users.dart';
 
@@ -263,6 +264,7 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
           BottomNavigationBarItem(icon: Icon(Icons.groups), label: "Users"),
           BottomNavigationBarItem(icon: Icon(Icons.menu_book), label: "Groups"),
           BottomNavigationBarItem(icon: Icon(Icons.school), label: "Courses"),
+          BottomNavigationBarItem(icon: Icon(Icons.schedule), label: "Schedule"),
         ],
       ),
     );
@@ -275,6 +277,7 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
       2 => "Users",
       3 => "Groups",
       4 => "Courses",
+      5 => "Schedule",
       _ => "Admin",
     };
   }
@@ -352,6 +355,10 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
           busy: _busy,
           onCreateCourse: _showCreateCourse,
           onDeleteCourse: _deleteCourse,
+        ),
+      5 => AdminScheduleTab(
+          busy: _busy,
+          onCreateEntry: () => _showCreateScheduleEntry(data),
         ),
       _ => AdminOverviewTab(
           data: data,
@@ -482,6 +489,220 @@ class _AdminHomePageState extends State<AdminHomePage> with TickerProviderStateM
         ],
       ),
     );
+  }
+
+  void _showCreateScheduleEntry(AdminBundle data) {
+    final students = data.students;
+    final courses = data.courses;
+
+    String? selectedStudent = students.isNotEmpty ? students.first["user_id"].toString() : null;
+    String? selectedCourseId = courses.isNotEmpty ? courses.first["id"].toString() : null;
+    String selectedDay = "MON";
+    TimeOfDay? startTime;
+    TimeOfDay? endTime;
+
+    final courseNameCtrl = TextEditingController();
+    final courseCodeCtrl = TextEditingController();
+    final locationCtrl = TextEditingController();
+    final instructorCtrl = TextEditingController();
+    final notesCtrl = TextEditingController();
+
+    if (courses.isNotEmpty) {
+      final first = courses.first;
+      courseNameCtrl.text = (first["title"] ?? "").toString();
+      courseCodeCtrl.text = (first["code"] ?? "").toString();
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final canSave = !_busy &&
+              selectedStudent != null &&
+              courseNameCtrl.text.trim().isNotEmpty &&
+              startTime != null &&
+              endTime != null;
+
+          return AlertDialog(
+            title: const Text("Add Schedule Entry"),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (students.isEmpty)
+                    const Text("No students found. Add a student first.")
+                  else
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedStudent,
+                      isExpanded: true,
+                      items: students
+                          .map((s) => DropdownMenuItem(
+                                value: s["user_id"].toString(),
+                                child: Text(
+                                  "${s["full_name"]} (${s["email"]})",
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: (v) => setDialogState(() => selectedStudent = v),
+                      decoration: const InputDecoration(labelText: "Student"),
+                    ),
+                  const SizedBox(height: 10),
+                  if (courses.isEmpty)
+                    const Text("No courses found. Create a course or enter details below.")
+                  else
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedCourseId,
+                      isExpanded: true,
+                      items: courses
+                          .map((c) {
+                            final title = (c["title"] ?? "Course").toString();
+                            final code = (c["code"] ?? "").toString();
+                            final label = code.isEmpty ? title : "$title ($code)";
+                            return DropdownMenuItem(
+                              value: c["id"].toString(),
+                              child: Text(label, overflow: TextOverflow.ellipsis),
+                            );
+                          })
+                          .toList(),
+                      onChanged: (v) {
+                        final match = courses.firstWhere(
+                          (c) => c["id"].toString() == v,
+                          orElse: () => <String, dynamic>{},
+                        );
+                        setDialogState(() {
+                          selectedCourseId = v;
+                          courseNameCtrl.text = (match["title"] ?? "").toString();
+                          courseCodeCtrl.text = (match["code"] ?? "").toString();
+                        });
+                      },
+                      decoration: const InputDecoration(labelText: "Course"),
+                    ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: courseNameCtrl,
+                    onChanged: (_) => setDialogState(() {}),
+                    decoration: const InputDecoration(labelText: "Course name"),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: courseCodeCtrl,
+                    decoration: const InputDecoration(labelText: "Course code (optional)"),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: selectedDay,
+                    isExpanded: true,
+                    items: const [
+                      DropdownMenuItem(value: "MON", child: Text("Monday")),
+                      DropdownMenuItem(value: "TUE", child: Text("Tuesday")),
+                      DropdownMenuItem(value: "WED", child: Text("Wednesday")),
+                      DropdownMenuItem(value: "THU", child: Text("Thursday")),
+                      DropdownMenuItem(value: "FRI", child: Text("Friday")),
+                      DropdownMenuItem(value: "SAT", child: Text("Saturday")),
+                      DropdownMenuItem(value: "SUN", child: Text("Sunday")),
+                    ],
+                    onChanged: (v) => setDialogState(() => selectedDay = v ?? "MON"),
+                    decoration: const InputDecoration(labelText: "Day of week"),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: startTime ?? TimeOfDay.now(),
+                            );
+                            if (picked != null) {
+                              setDialogState(() => startTime = picked);
+                            }
+                          },
+                          child: Text(startTime == null ? "Start time" : startTime!.format(context)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: endTime ?? TimeOfDay.now(),
+                            );
+                            if (picked != null) {
+                              setDialogState(() => endTime = picked);
+                            }
+                          },
+                          child: Text(endTime == null ? "End time" : endTime!.format(context)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: locationCtrl,
+                    decoration: const InputDecoration(labelText: "Location (optional)"),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: instructorCtrl,
+                    decoration: const InputDecoration(labelText: "Instructor (optional)"),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: notesCtrl,
+                    decoration: const InputDecoration(labelText: "Notes (optional)"),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+              ElevatedButton(
+                onPressed: canSave
+                    ? () async {
+                        final studentId = selectedStudent!;
+                        final courseName = courseNameCtrl.text.trim();
+                        final courseCode = courseCodeCtrl.text.trim();
+                        final location = locationCtrl.text.trim();
+                        final instructor = instructorCtrl.text.trim();
+                        final notes = notesCtrl.text.trim();
+
+                        Navigator.pop(context);
+
+                        await _mutate(() async {
+                          await Supabase.instance.client.from("timetable_entries").insert({
+                            "student_id": studentId,
+                            "course_code": courseCode.isEmpty ? null : courseCode,
+                            "course_name": courseName,
+                            "day_of_week": selectedDay,
+                            "start_time": _timeToDb(startTime!),
+                            "end_time": _timeToDb(endTime!),
+                            "location": location.isEmpty ? null : location,
+                            "instructor": instructor.isEmpty ? null : instructor,
+                            "notes": notes.isEmpty ? null : notes,
+                          });
+                        });
+
+                        _toast("Schedule entry added", AdminColors.green, icon: Icons.check_circle_outline);
+                      }
+                    : null,
+                child: const Text("Save"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _timeToDb(TimeOfDay time) {
+    final hour = time.hour.toString().padLeft(2, "0");
+    final minute = time.minute.toString().padLeft(2, "0");
+    return "$hour:$minute:00";
   }
 
   void _showAssignStudentToGroup(String groupId, AdminBundle data) {
