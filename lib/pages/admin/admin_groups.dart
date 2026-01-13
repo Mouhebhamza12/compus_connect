@@ -35,9 +35,9 @@ class AdminGroupsTab extends StatelessWidget {
             const Expanded(child: SectionTitle("Groups")),
             ElevatedButton.icon(
               onPressed: busy ? null : onCreateGroup,
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add , color:Colors.white ,),
               style: ElevatedButton.styleFrom(backgroundColor: AdminColors.uniBlue),
-              label: const Text("New Group"),
+              label: const Text("New Group", style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
